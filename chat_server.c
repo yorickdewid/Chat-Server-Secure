@@ -2,7 +2,7 @@
  * Copyright 2014
  *
  * Author: 		Dinux
- * Description:		Simple chatroom in C
+ * Description:		Simple chatroom in C using SSL
  * Version:		1.0
  *
  */
@@ -21,6 +21,13 @@
 #include <openssl/err.h>
 
 #define MAX_CLIENTS	100
+#define TCP_PORT	5000
+
+#define ERROR { \
+    fprintf(stderr, \
+        "%s\n"); \
+        exit(1); \
+    }
 
 static unsigned int cli_count = 0;
 static int uid = 10;
@@ -148,6 +155,8 @@ void *hanle_client(void *arg){
 	sprintf(buff_out, "<<JOIN, HELLO %s\r\n", cli->name);
 	send_message_all(buff_out);
 
+	send_message_self("Type \\HELP for commands\r\n", cli->ssl);
+
 	while((rlen = SSL_read(cli->ssl, buff_in, sizeof(buff_in)-1)) > 0){
 	        buff_in[rlen] = '\0';
 	        buff_out[0] = '\0';
@@ -270,7 +279,7 @@ int main(int argc, char *argv[]){
 	listenfd = socket(AF_INET, SOCK_STREAM, 0);
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	serv_addr.sin_port = htons(5000); 
+	serv_addr.sin_port = htons(TCP_PORT); 
 
 	/* Initialize SSL */
 	OpenSSL_add_all_algorithms();
