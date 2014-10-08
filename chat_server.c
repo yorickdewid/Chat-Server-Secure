@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
+#include <ctype.h>
 #include <string.h>
 #include <pthread.h>
 #include <sys/types.h>
@@ -110,6 +111,13 @@ void strip_newline(char *s){
 	}
 }
 
+void strtolower(char *s){
+   while(*s != '\0'){
+      *s = tolower(*s);
+      s++;
+   }
+}
+
 /* Print ip address */
 void print_client_addr(struct sockaddr_in addr){
 	printf("%d.%d.%d.%d",
@@ -154,11 +162,13 @@ void *handle_client(void *arg){
 		if(buff_in[0] == '\\'){
 			char *command, *param;
 			command = strtok(buff_in," ");
-			if(!strcmp(command, "\\QUIT")){
+			command++;
+			strtolower(command);
+			if(!strcmp(command, "quit")){
 				break;
-			}else if(!strcmp(command, "\\PING")){
+			}else if(!strcmp(command, "ping")){
 				send_message_client("<<PONG\r\n", cli->uid);
-			}else if(!strcmp(command, "\\NAME")){
+			}else if(!strcmp(command, "name")){
 				param = strtok(NULL, " ");
 				if(param){
 					char *old_name = strdup(cli->name);
@@ -169,7 +179,7 @@ void *handle_client(void *arg){
 				}else{
 					send_message_client("<<NAME CANNOT BE NULL\r\n", cli->uid);
 				}
-			}else if(!strcmp(command, "\\PRIVATE")){
+			}else if(!strcmp(command, "private")){
 				param = strtok(NULL, " ");
 				if(param){
 					int uid = atoi(param);
@@ -189,11 +199,11 @@ void *handle_client(void *arg){
 				}else{
 					send_message_client("<<REFERENCE CANNOT BE NULL\r\n", cli->uid);
 				}
-			}else if(!strcmp(command, "\\ACTIVE")){
+			}else if(!strcmp(command, "active")){
 				sprintf(buff_out, "<<CLIENTS %d\r\n", cli_count);
 				send_message_client(buff_out, cli->uid);
 				send_active_clients(cli->uid);
-			}else if(!strcmp(command, "\\HELP")){
+			}else if(!strcmp(command, "help")){
 				strcat(buff_out, "\\QUIT     Quit chatroom\r\n");
 				strcat(buff_out, "\\PING     Server test\r\n");
 				strcat(buff_out, "\\NAME     <name> Change nickname\r\n");
