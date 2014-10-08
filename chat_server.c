@@ -32,6 +32,10 @@
 
 static unsigned int cli_count = 0;
 static int uid = 10;
+static const char server_name[32] = "[server]";
+static const char guest_name[] = "guest";
+static const char motd[] = "  -= Welcome =-\r\n"
+	"Secure Chat Server\r\n";
 
 /* Client structure */
 typedef struct {
@@ -94,9 +98,11 @@ void send_message_client(char *s, int uid){
 void send_active_clients(int uid){
 	int i;
 	char s[64];
+	sprintf(s, "%s | ID | Name\r\n%s +----+-----------------\r\n", server_name, server_name);
+	send_message_client(s, uid);
 	for(i=0;i<MAX_CLIENTS;i++){
 		if(clients[i]){
-			sprintf(s, "<<CLIENT %d | %s\r\n", clients[i]->uid, clients[i]->name);
+			sprintf(s, "%s | %d | %s\r\n", server_name, clients[i]->uid, clients[i]->name);
 			send_message_client(s, uid);
 		}
 	}
@@ -143,10 +149,12 @@ void *handle_client(void *arg){
 	print_client_addr(cli->addr);
 	printf(" REFERENCED BY %d\n", cli->uid);
 
-	sprintf(buff_out, "<<JOIN, HELLO %s\r\n", cli->name);
+	sprintf(buff_out, "%s", motd);
+	send_message_client(buff_out, cli->uid);
+	sprintf(buff_out, "%s [%s] joined the chat\r\n", server_name, cli->name);
 	send_message_all(buff_out);
-
-	send_message_client("Type \\HELP for a list of commands\r\n", cli->uid);
+	sprintf(buff_out, "%s type \\help for a list of commands\r\n", server_name);
+	send_message_client(buff_out, cli->uid);
 
 	while((rlen = SSL_read(cli->ssl, buff_in, sizeof(buff_in)-1)) > 0){
 	        buff_in[rlen] = '\0';
@@ -167,17 +175,19 @@ void *handle_client(void *arg){
 			if(!strcmp(command, "quit")){
 				break;
 			}else if(!strcmp(command, "ping")){
-				send_message_client("<<PONG\r\n", cli->uid);
+				sprintf(buff_out, "%s pong\r\n", server_name);
+				send_message_client(buff_out, cli->uid);
 			}else if(!strcmp(command, "name")){
 				param = strtok(NULL, " ");
 				if(param){
 					char *old_name = strdup(cli->name);
-					strcpy(cli->name, param);
-					sprintf(buff_out, "<<RENAME, %s TO %s\r\n", old_name, cli->name);
+					strcpy(cli->name, param);//TODO
+					sprintf(buff_out, "%s [%s] renamed to [%s]\r\n", server_name, old_name, cli->name);
 					free(old_name);
 					send_message_all(buff_out);
 				}else{
-					send_message_client("<<NAME CANNOT BE NULL\r\n", cli->uid);
+					sprintf(buff_out, "%s <name> cannot be null\r\n", server_name);
+					send_message_client(buff_out, cli->uid);
 				}
 			}else if(!strcmp(command, "private")){
 				param = strtok(NULL, " ");
@@ -185,7 +195,7 @@ void *handle_client(void *arg){
 					int uid = atoi(param);
 					param = strtok(NULL, " ");
 					if(param){
-						sprintf(buff_out, "[PM][%s]", cli->name);
+						sprintf(buff_out, "[%s][PM]", cli->name);
 						while(param != NULL){
 							strcat(buff_out, " ");
 							strcat(buff_out, param);
@@ -194,25 +204,28 @@ void *handle_client(void *arg){
 						strcat(buff_out, "\r\n");
 						send_message_client(buff_out, uid);
 					}else{
-						send_message_client("<<MESSAGE CANNOT BE NULL\r\n", cli->uid);
+						sprintf(buff_out, "%s <message> cannot be null\r\n", server_name);
+						send_message_client(buff_out, cli->uid);
 					}
 				}else{
-					send_message_client("<<REFERENCE CANNOT BE NULL\r\n", cli->uid);
+					sprintf(buff_out, "%s <reference> cannot be null\r\n", server_name);
+					send_message_client(buff_out, cli->uid);
 				}
 			}else if(!strcmp(command, "active")){
-				sprintf(buff_out, "<<CLIENTS %d\r\n", cli_count);
+				sprintf(buff_out, "%s users: %d\r\n", server_name, cli_count);
 				send_message_client(buff_out, cli->uid);
 				send_active_clients(cli->uid);
 			}else if(!strcmp(command, "help")){
-				strcat(buff_out, "\\QUIT     Quit chatroom\r\n");
-				strcat(buff_out, "\\PING     Server test\r\n");
-				strcat(buff_out, "\\NAME     <name> Change nickname\r\n");
-				strcat(buff_out, "\\PRIVATE  <reference> <message> Send private message\r\n");
-				strcat(buff_out, "\\ACTIVE   Show active clients\r\n");
-				strcat(buff_out, "\\HELP     Show help\r\n");
+				strcat(buff_out, "\\quit     Quit chatroom\r\n");
+				strcat(buff_out, "\\ping     Server test\r\n");
+				strcat(buff_out, "\\name     <name> Change nickname\r\n");
+				strcat(buff_out, "\\private  <reference> <message> Send private message\r\n");
+				strcat(buff_out, "\\active   Show active clients\r\n");
+				strcat(buff_out, "\\help     Show help\r\n");
 				send_message_client(buff_out, cli->uid);
 			}else{
-				send_message_client("<<UNKOWN COMMAND\r\n", cli->uid);
+				sprintf(buff_out, "%s unkown command '%s'\r\n", server_name, command);
+				send_message_client(buff_out, cli->uid);
 			}
 		}else{
 			/* Send message */
@@ -222,7 +235,7 @@ void *handle_client(void *arg){
 	}
 
 	/* Close connection */
-	sprintf(buff_out, "<<LEAVE, BYE %s\r\n", cli->name);
+	sprintf(buff_out, "%s [%s] left the chat\r\n", server_name, cli->name);
 	send_message_all(buff_out);
 	int sd = SSL_get_fd(cli->ssl);
 	SSL_free(cli->ssl);
@@ -312,7 +325,7 @@ int main(int argc, char *argv[]){
 		cli->addr = cli_addr;
 		cli->ssl = ssl;
 		cli->uid = uid++;
-		sprintf(cli->name, "%d", cli->uid);
+		sprintf(cli->name, "%s%d", guest_name, cli->uid);
 
 		/* Add client to the queue and fork thread */
 		queue_add(cli);
