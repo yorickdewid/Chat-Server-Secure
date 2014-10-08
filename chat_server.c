@@ -23,9 +23,9 @@
 #define MAX_CLIENTS	100
 #define TCP_PORT	5000
 
-#define ERROR { \
+#define ERROR(s) { \
     fprintf(stderr, \
-        "%s\n"); \
+        "%s\n", s); \
         exit(1); \
     }
 
@@ -45,74 +45,58 @@ client_t *clients[MAX_CLIENTS];
 /* Add client to queue */
 void queue_add(client_t *cl){
 	int i;
-	for(i=0;i<MAX_CLIENTS;i++){
+	for(i=0;i<MAX_CLIENTS;i++)
 		if(!clients[i]){
 			clients[i] = cl;
 			return;
 		}
-	}
 }
 
 /* Delete client from queue */
 void queue_delete(int uid){
 	int i;
-	for(i=0;i<MAX_CLIENTS;i++){
-		if(clients[i]){
+	for(i=0;i<MAX_CLIENTS;i++)
+		if(clients[i])
 			if(clients[i]->uid == uid){
 				clients[i] = NULL;
 				return;
 			}
-		}
-	}
 }
 
 /* Send message to all clients but the sender */
 void send_message(char *s, int uid){
 	int i;
-	for(i=0;i<MAX_CLIENTS;i++){
-		if(clients[i]){
-			if(clients[i]->uid != uid){
+	for(i=0;i<MAX_CLIENTS;i++)
+		if(clients[i])
+			if(clients[i]->uid != uid)
 				SSL_write(clients[i]->ssl, s, strlen(s));
-			}
-		}
-	}
 }
 
 /* Send message to all clients */
 void send_message_all(char *s){
 	int i;
-	for(i=0;i<MAX_CLIENTS;i++){
-		if(clients[i]){
+	for(i=0;i<MAX_CLIENTS;i++)
+		if(clients[i])
 			SSL_write(clients[i]->ssl, s, strlen(s));
-		}
-	}
-}
-
-/* Send message to sender */
-void send_message_self(const char *s, SSL *ssl){
-	SSL_write(ssl, s, strlen(s));
 }
 
 /* Send message to client */
 void send_message_client(char *s, int uid){
 	int i;
-	for(i=0;i<MAX_CLIENTS;i++){
-		if(clients[i]){
-			if(clients[i]->uid == uid){
+	for(i=0;i<MAX_CLIENTS;i++)
+		if(clients[i])
+			if(clients[i]->uid == uid)
 				SSL_write(clients[i]->ssl, s, strlen(s));
-			}
-		}
-	}
 }
 
 /* Send list of active clients */
-void send_active_clients(SSL *ssl){
+void send_active_clients(int uid){
 	int i;
 	char s[64];
 	for(i=0;i<MAX_CLIENTS;i++){
 		if(clients[i]){
 			sprintf(s, "<<CLIENT %d | %s\r\n", clients[i]->uid, clients[i]->name);
-			send_message_self(s, ssl);
+			send_message_client(s, uid);
 		}
 	}
 }
@@ -120,9 +104,8 @@ void send_active_clients(SSL *ssl){
 /* Strip CRLF */
 void strip_newline(char *s){
 	while(*s != '\0'){
-		if(*s == '\r' || *s == '\n'){
+		if(*s == '\r' || *s == '\n')
 			*s = '\0';
-		}
 		s++;
 	}
 }
@@ -137,7 +120,7 @@ void print_client_addr(struct sockaddr_in addr){
 }
 
 /* Handle all communication with the client */
-void *hanle_client(void *arg){
+void *handle_client(void *arg){
 	char buff_out[1024];
 	char buff_in[1024];
 	int rlen;
@@ -146,7 +129,7 @@ void *hanle_client(void *arg){
 	client_t *cli = (client_t *)arg;
 
 	if(SSL_accept(cli->ssl) == -1)
-		ERR_print_errors_fp(stderr);
+		ERROR("Client connection faild"); //ERR_print_errors_fp(stderr);
 
 	printf("<<ACCEPT ");
 	print_client_addr(cli->addr);
@@ -155,7 +138,7 @@ void *hanle_client(void *arg){
 	sprintf(buff_out, "<<JOIN, HELLO %s\r\n", cli->name);
 	send_message_all(buff_out);
 
-	send_message_self("Type \\HELP for commands\r\n", cli->ssl);
+	send_message_client("Type \\HELP for a list of commands\r\n", cli->uid);
 
 	while((rlen = SSL_read(cli->ssl, buff_in, sizeof(buff_in)-1)) > 0){
 	        buff_in[rlen] = '\0';
@@ -174,7 +157,7 @@ void *hanle_client(void *arg){
 			if(!strcmp(command, "\\QUIT")){
 				break;
 			}else if(!strcmp(command, "\\PING")){
-				send_message_self("<<PONG\r\n", cli->ssl);
+				send_message_client("<<PONG\r\n", cli->uid);
 			}else if(!strcmp(command, "\\NAME")){
 				param = strtok(NULL, " ");
 				if(param){
@@ -184,7 +167,7 @@ void *hanle_client(void *arg){
 					free(old_name);
 					send_message_all(buff_out);
 				}else{
-					send_message_self("<<NAME CANNOT BE NULL\r\n", cli->ssl);
+					send_message_client("<<NAME CANNOT BE NULL\r\n", cli->uid);
 				}
 			}else if(!strcmp(command, "\\PRIVATE")){
 				param = strtok(NULL, " ");
@@ -201,15 +184,15 @@ void *hanle_client(void *arg){
 						strcat(buff_out, "\r\n");
 						send_message_client(buff_out, uid);
 					}else{
-						send_message_self("<<MESSAGE CANNOT BE NULL\r\n", cli->ssl);
+						send_message_client("<<MESSAGE CANNOT BE NULL\r\n", cli->uid);
 					}
 				}else{
-					send_message_self("<<REFERENCE CANNOT BE NULL\r\n", cli->ssl);
+					send_message_client("<<REFERENCE CANNOT BE NULL\r\n", cli->uid);
 				}
 			}else if(!strcmp(command, "\\ACTIVE")){
 				sprintf(buff_out, "<<CLIENTS %d\r\n", cli_count);
-				send_message_self(buff_out, cli->ssl);
-				send_active_clients(cli->ssl);
+				send_message_client(buff_out, cli->uid);
+				send_active_clients(cli->uid);
 			}else if(!strcmp(command, "\\HELP")){
 				strcat(buff_out, "\\QUIT     Quit chatroom\r\n");
 				strcat(buff_out, "\\PING     Server test\r\n");
@@ -217,9 +200,9 @@ void *hanle_client(void *arg){
 				strcat(buff_out, "\\PRIVATE  <reference> <message> Send private message\r\n");
 				strcat(buff_out, "\\ACTIVE   Show active clients\r\n");
 				strcat(buff_out, "\\HELP     Show help\r\n");
-				send_message_self(buff_out, cli->ssl);
+				send_message_client(buff_out, cli->uid);
 			}else{
-				send_message_self("<<UNKOWN COMMAND\r\n", cli->ssl);
+				send_message_client("<<UNKOWN COMMAND\r\n", cli->uid);
 			}
 		}else{
 			/* Send message */
@@ -244,25 +227,19 @@ void *hanle_client(void *arg){
 	cli_count--;
 	pthread_detach(pthread_self());
 	
-	return NULL;
+	return 0;
 }
 
 /* Load the SSL certificate and private key */
 void load_certificate(SSL_CTX *ctx, const char *cert, const char *key){
-	if(SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM) <= 0){
-		ERR_print_errors_fp(stderr);
-		abort();
-	}
+	if(SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM) <= 0)
+		ERROR("Certificate is invalid");
 
-	if(SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM) <= 0 ){
-		ERR_print_errors_fp(stderr);
-		abort();
-	}
+	if(SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM) <= 0 )
+		 ERROR("Private key is invalid");
 
-	if(!SSL_CTX_check_private_key(ctx)){
-		fprintf(stderr, "Private key does not match the public certificate\n");
-		abort();
-	}
+	if(!SSL_CTX_check_private_key(ctx))
+		ERROR("Key pair does not match");
 }
 
 int main(int argc, char *argv[]){
@@ -329,7 +306,7 @@ int main(int argc, char *argv[]){
 
 		/* Add client to the queue and fork thread */
 		queue_add(cli);
-		pthread_create(&tid, NULL, &hanle_client, (void*)cli);
+		pthread_create(&tid, NULL, &handle_client, (void*)cli);
 
 		/* Reduce CPU usage */
 		sleep(1);
