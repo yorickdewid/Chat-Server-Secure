@@ -17,6 +17,8 @@
 #include <string.h>
 #include <pthread.h>
 #include <sys/types.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #define MAX_CLIENTS	100
 
@@ -26,7 +28,7 @@ static int uid = 10;
 /* Client structure */
 typedef struct {
 	struct sockaddr_in addr;	/* Client remote address */
-	int connfd;			/* Connection file descriptor */
+	SSL *ssl;			/* SSL Connection file descriptor */
 	int uid;			/* Client unique identifier */
 	char name[32];			/* Client name */
 } client_t;
@@ -63,7 +65,7 @@ void send_message(char *s, int uid){
 	for(i=0;i<MAX_CLIENTS;i++){
 		if(clients[i]){
 			if(clients[i]->uid != uid){
-				write(clients[i]->connfd, s, strlen(s));
+				SSL_write(clients[i]->ssl, s, strlen(s));
 			}
 		}
 	}
@@ -74,14 +76,14 @@ void send_message_all(char *s){
 	int i;
 	for(i=0;i<MAX_CLIENTS;i++){
 		if(clients[i]){
-			write(clients[i]->connfd, s, strlen(s));
+			SSL_write(clients[i]->ssl, s, strlen(s));
 		}
 	}
 }
 
 /* Send message to sender */
-void send_message_self(const char *s, int connfd){
-	write(connfd, s, strlen(s));
+void send_message_self(const char *s, SSL *ssl){
+	SSL_write(ssl, s, strlen(s));
 }
 
 /* Send message to client */
@@ -90,20 +92,20 @@ void send_message_client(char *s, int uid){
 	for(i=0;i<MAX_CLIENTS;i++){
 		if(clients[i]){
 			if(clients[i]->uid == uid){
-				write(clients[i]->connfd, s, strlen(s));
+				SSL_write(clients[i]->ssl, s, strlen(s));
 			}
 		}
 	}
 }
 
 /* Send list of active clients */
-void send_active_clients(int connfd){
+void send_active_clients(SSL *ssl){
 	int i;
 	char s[64];
 	for(i=0;i<MAX_CLIENTS;i++){
 		if(clients[i]){
 			sprintf(s, "<<CLIENT %d | %s\r\n", clients[i]->uid, clients[i]->name);
-			send_message_self(s, connfd);
+			send_message_self(s, ssl);
 		}
 	}
 }
@@ -136,6 +138,9 @@ void *hanle_client(void *arg){
 	cli_count++;
 	client_t *cli = (client_t *)arg;
 
+	if(SSL_accept(cli->ssl) == -1)
+		ERR_print_errors_fp(stderr);
+
 	printf("<<ACCEPT ");
 	print_client_addr(cli->addr);
 	printf(" REFERENCED BY %d\n", cli->uid);
@@ -143,8 +148,7 @@ void *hanle_client(void *arg){
 	sprintf(buff_out, "<<JOIN, HELLO %s\r\n", cli->name);
 	send_message_all(buff_out);
 
-	/* Receive input from client */
-	while((rlen = read(cli->connfd, buff_in, sizeof(buff_in)-1)) > 0){
+	while((rlen = SSL_read(cli->ssl, buff_in, sizeof(buff_in)-1)) > 0){
 	        buff_in[rlen] = '\0';
 	        buff_out[0] = '\0';
 		strip_newline(buff_in);
@@ -161,7 +165,7 @@ void *hanle_client(void *arg){
 			if(!strcmp(command, "\\QUIT")){
 				break;
 			}else if(!strcmp(command, "\\PING")){
-				send_message_self("<<PONG\r\n", cli->connfd);
+				send_message_self("<<PONG\r\n", cli->ssl);
 			}else if(!strcmp(command, "\\NAME")){
 				param = strtok(NULL, " ");
 				if(param){
@@ -171,7 +175,7 @@ void *hanle_client(void *arg){
 					free(old_name);
 					send_message_all(buff_out);
 				}else{
-					send_message_self("<<NAME CANNOT BE NULL\r\n", cli->connfd);
+					send_message_self("<<NAME CANNOT BE NULL\r\n", cli->ssl);
 				}
 			}else if(!strcmp(command, "\\PRIVATE")){
 				param = strtok(NULL, " ");
@@ -188,15 +192,15 @@ void *hanle_client(void *arg){
 						strcat(buff_out, "\r\n");
 						send_message_client(buff_out, uid);
 					}else{
-						send_message_self("<<MESSAGE CANNOT BE NULL\r\n", cli->connfd);
+						send_message_self("<<MESSAGE CANNOT BE NULL\r\n", cli->ssl);
 					}
 				}else{
-					send_message_self("<<REFERENCE CANNOT BE NULL\r\n", cli->connfd);
+					send_message_self("<<REFERENCE CANNOT BE NULL\r\n", cli->ssl);
 				}
 			}else if(!strcmp(command, "\\ACTIVE")){
 				sprintf(buff_out, "<<CLIENTS %d\r\n", cli_count);
-				send_message_self(buff_out, cli->connfd);
-				send_active_clients(cli->connfd);
+				send_message_self(buff_out, cli->ssl);
+				send_active_clients(cli->ssl);
 			}else if(!strcmp(command, "\\HELP")){
 				strcat(buff_out, "\\QUIT     Quit chatroom\r\n");
 				strcat(buff_out, "\\PING     Server test\r\n");
@@ -204,9 +208,9 @@ void *hanle_client(void *arg){
 				strcat(buff_out, "\\PRIVATE  <reference> <message> Send private message\r\n");
 				strcat(buff_out, "\\ACTIVE   Show active clients\r\n");
 				strcat(buff_out, "\\HELP     Show help\r\n");
-				send_message_self(buff_out, cli->connfd);
+				send_message_self(buff_out, cli->ssl);
 			}else{
-				send_message_self("<<UNKOWN COMMAND\r\n", cli->connfd);
+				send_message_self("<<UNKOWN COMMAND\r\n", cli->ssl);
 			}
 		}else{
 			/* Send message */
@@ -216,9 +220,11 @@ void *hanle_client(void *arg){
 	}
 
 	/* Close connection */
-	close(cli->connfd);
 	sprintf(buff_out, "<<LEAVE, BYE %s\r\n", cli->name);
 	send_message_all(buff_out);
+	int sd = SSL_get_fd(cli->ssl);
+	SSL_free(cli->ssl);
+	close(sd);
 
 	/* Delete client from queue and yeild thread */
 	queue_delete(cli->uid);
@@ -232,11 +238,33 @@ void *hanle_client(void *arg){
 	return NULL;
 }
 
+/* Load the SSL certificate and private key */
+void load_certificate(SSL_CTX *ctx, const char *cert, const char *key){
+	if(SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM) <= 0){
+		ERR_print_errors_fp(stderr);
+		abort();
+	}
+
+	if(SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM) <= 0 ){
+		ERR_print_errors_fp(stderr);
+		abort();
+	}
+
+	if(!SSL_CTX_check_private_key(ctx)){
+		fprintf(stderr, "Private key does not match the public certificate\n");
+		abort();
+	}
+}
+
 int main(int argc, char *argv[]){
 	int listenfd = 0, connfd = 0;
 	struct sockaddr_in serv_addr;
 	struct sockaddr_in cli_addr;
 	pthread_t tid;
+	SSL_CTX *ctx = NULL;
+	SSL *ssl = NULL;
+	const char cert[] = "cert.pem";
+	const char key[] = "key.pem";
 
 	/* Socket settings */
 	listenfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -244,6 +272,13 @@ int main(int argc, char *argv[]){
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(5000); 
 
+	/* Initialize SSL */
+	OpenSSL_add_all_algorithms();
+	SSL_load_error_strings();
+	SSL_library_init();
+	ctx = SSL_CTX_new(SSLv3_server_method());
+	load_certificate(ctx, cert, key);
+	
 	/* Bind */
 	if(bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0){
 		perror("Socket binding failed");
@@ -273,10 +308,13 @@ int main(int argc, char *argv[]){
 			continue;
 		}
 
+		ssl = SSL_new(ctx);
+		SSL_set_fd(ssl, connfd);
+
 		/* Client settings */
 		client_t *cli = (client_t *)malloc(sizeof(client_t));
 		cli->addr = cli_addr;
-		cli->connfd = connfd;
+		cli->ssl = ssl;
 		cli->uid = uid++;
 		sprintf(cli->name, "%d", cli->uid);
 
@@ -287,4 +325,7 @@ int main(int argc, char *argv[]){
 		/* Reduce CPU usage */
 		sleep(1);
 	}
+
+	SSL_CTX_free(ctx);
+	return 0;
 }
