@@ -143,7 +143,7 @@ void *handle_client(void *arg){
 	client_t *cli = (client_t *)arg;
 
 	if(SSL_accept(cli->ssl) == -1)
-		ERROR("Client connection faild"); //ERR_print_errors_fp(stderr);
+		ERROR("Client connection faild");
 
 	printf("<<ACCEPT ");
 	print_client_addr(cli->addr);
@@ -177,11 +177,21 @@ void *handle_client(void *arg){
 			}else if(!strcmp(command, "ping")){
 				sprintf(buff_out, "%s pong\r\n", server_name);
 				send_message_client(buff_out, cli->uid);
+			}else if(!strcmp(command, "me")){
+				param = strtok(NULL, " ");
+				if(param){
+					sprintf(buff_out, "**%s %s **\r\n", cli->name, param);//TODO
+					send_message(buff_out, cli->uid);
+				}else{
+					sprintf(buff_out, "%s <message> cannot be null\r\n", server_name);
+					send_message_client(buff_out, cli->uid);
+				}
 			}else if(!strcmp(command, "name")){
 				param = strtok(NULL, " ");
 				if(param){
 					char *old_name = strdup(cli->name);
-					strcpy(cli->name, param);//TODO
+					strncpy(cli->name, param, 32);
+					cli->name[31] = '\0';
 					sprintf(buff_out, "%s [%s] renamed to [%s]\r\n", server_name, old_name, cli->name);
 					free(old_name);
 					send_message_all(buff_out);
