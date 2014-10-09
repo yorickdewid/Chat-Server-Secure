@@ -23,8 +23,17 @@
 
 #define MAX_CLIENTS	100
 #define TCP_PORT	5000
+#define LOG_FILE	"server.log"
+
+#define LOG(s) { \
+    FILE *pf=fopen(LOG_FILE, "a"); \
+    fprintf(pf, \
+        "%s\n", s); \
+    fclose(pf); \
+    }
 
 #define ERROR(s) { \
+    LOG(s); \
     fprintf(stderr, \
         "%s\n", s); \
         exit(1); \
@@ -34,8 +43,10 @@ static unsigned int cli_count = 0;
 static int uid = 10;
 static const char server_name[32] = "[server]";
 static const char guest_name[] = "guest";
-static const char motd[] = "  -= Welcome =-\r\n"
-	"Secure Chat Server\r\n";
+static const char motd[] =
+	"  -= Welcome =-\r\n"
+	"Secure Chat Server\r\n"
+	"Type \\help for commands\r\n";
 
 /* Client structure */
 typedef struct {
@@ -143,18 +154,19 @@ void *handle_client(void *arg){
 	client_t *cli = (client_t *)arg;
 
 	if(SSL_accept(cli->ssl) == -1)
-		ERROR("Client connection faild");
+		ERROR("[error] client connection faild");
 
 	printf("<<ACCEPT ");
 	print_client_addr(cli->addr);
 	printf(" REFERENCED BY %d\n", cli->uid);
+	LOG("[info] accepted new connection");
 
 	sprintf(buff_out, "%s", motd);
 	send_message_client(buff_out, cli->uid);
 	sprintf(buff_out, "%s [%s] joined the chat\r\n", server_name, cli->name);
 	send_message_all(buff_out);
-	sprintf(buff_out, "%s type \\help for a list of commands\r\n", server_name);
-	send_message_client(buff_out, cli->uid);
+	strip_newline(buff_out);
+	LOG(buff_out);
 
 	while((rlen = SSL_read(cli->ssl, buff_in, sizeof(buff_in)-1)) > 0){
 	        buff_in[rlen] = '\0';
@@ -182,6 +194,8 @@ void *handle_client(void *arg){
 				if(param){
 					sprintf(buff_out, "**%s %s **\r\n", cli->name, param);//TODO
 					send_message(buff_out, cli->uid);
+					strip_newline(buff_out);
+					LOG(buff_out);
 				}else{
 					sprintf(buff_out, "%s <message> cannot be null\r\n", server_name);
 					send_message_client(buff_out, cli->uid);
@@ -195,6 +209,8 @@ void *handle_client(void *arg){
 					sprintf(buff_out, "%s [%s] renamed to [%s]\r\n", server_name, old_name, cli->name);
 					free(old_name);
 					send_message_all(buff_out);
+					strip_newline(buff_out);
+					LOG(buff_out);
 				}else{
 					sprintf(buff_out, "%s <name> cannot be null\r\n", server_name);
 					send_message_client(buff_out, cli->uid);
@@ -213,6 +229,8 @@ void *handle_client(void *arg){
 						}
 						strcat(buff_out, "\r\n");
 						send_message_client(buff_out, uid);
+						strip_newline(buff_out);
+						LOG(buff_out);
 					}else{
 						sprintf(buff_out, "%s <message> cannot be null\r\n", server_name);
 						send_message_client(buff_out, cli->uid);
@@ -241,12 +259,16 @@ void *handle_client(void *arg){
 			/* Send message */
 			sprintf(buff_out, "[%s] %s\r\n", cli->name, buff_in);
 			send_message(buff_out, cli->uid);
+			strip_newline(buff_out);
+			LOG(buff_out);
 		}
 	}
 
 	/* Close connection */
 	sprintf(buff_out, "%s [%s] left the chat\r\n", server_name, cli->name);
 	send_message_all(buff_out);
+	strip_newline(buff_out);
+	LOG(buff_out);
 	int sd = SSL_get_fd(cli->ssl);
 	SSL_free(cli->ssl);
 	close(sd);
@@ -256,6 +278,7 @@ void *handle_client(void *arg){
 	printf("<<LEAVE ");
 	print_client_addr(cli->addr);
 	printf(" REFERENCED BY %d\n", cli->uid);
+	LOG("[info] connection closed");
 	free(cli);
 	cli_count--;
 	pthread_detach(pthread_self());
@@ -266,13 +289,13 @@ void *handle_client(void *arg){
 /* Load the SSL certificate and private key */
 void load_certificate(SSL_CTX *ctx, const char *cert, const char *key){
 	if(SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM) <= 0)
-		ERROR("Certificate is invalid");
+		ERROR("[error] certificate is invalid");
 
 	if(SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM) <= 0 )
-		 ERROR("Private key is invalid");
+		ERROR("[error] private key is invalid");
 
 	if(!SSL_CTX_check_private_key(ctx))
-		ERROR("Key pair does not match");
+		ERROR("[error] key pair does not match");
 }
 
 int main(int argc, char *argv[]){
@@ -301,16 +324,19 @@ int main(int argc, char *argv[]){
 	/* Bind */
 	if(bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0){
 		perror("Socket binding failed");
+		LOG("[error] could not bind to socket");
 		return 1;
 	}
 
 	/* Listen */
 	if(listen(listenfd, 10) < 0){
 		perror("Socket listening failed");
+		LOG("[error] could not listen on socket");
 		return 1;
 	}
 
 	printf("<[SERVER STARTED]>\n");
+	LOG("[info] server started");
 
 	/* Accept clients */
 	while(1){
@@ -324,6 +350,7 @@ int main(int argc, char *argv[]){
 			print_client_addr(cli_addr);
 			printf("\n");
 			close(connfd);
+			LOG("[error] max clients reached");
 			continue;
 		}
 
@@ -346,5 +373,7 @@ int main(int argc, char *argv[]){
 	}
 
 	SSL_CTX_free(ctx);
+	LOG("[info] server stopped");
+
 	return 0;
 }
