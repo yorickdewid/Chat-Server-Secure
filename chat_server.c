@@ -17,6 +17,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <pthread.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -192,7 +193,13 @@ void *handle_client(void *arg){
 			}else if(!strcmp(command, "me")){
 				param = strtok(NULL, " ");
 				if(param){
-					sprintf(buff_out, "**%s %s **\r\n", cli->name, param);//TODO
+					sprintf(buff_out, "**%s", cli->name);
+					while(param != NULL){
+						strcat(buff_out, " ");
+						strcat(buff_out, param);
+						param = strtok(NULL, " ");
+					}
+					strcat(buff_out, "**\r\n");
 					send_message(buff_out, cli->uid);
 					strip_newline(buff_out);
 					LOG(buff_out);
@@ -245,6 +252,7 @@ void *handle_client(void *arg){
 				send_active_clients(cli->uid);
 			}else if(!strcmp(command, "help")){
 				strcat(buff_out, "\\quit     Quit chatroom\r\n");
+				strcat(buff_out, "\\me       Send message in 3rd person\r\n");
 				strcat(buff_out, "\\ping     Server test\r\n");
 				strcat(buff_out, "\\name     <name> Change nickname\r\n");
 				strcat(buff_out, "\\private  <reference> <message> Send private message\r\n");
@@ -321,6 +329,13 @@ int main(int argc, char *argv[]){
 	ctx = SSL_CTX_new(SSLv3_server_method());
 	load_certificate(ctx, cert, key);
 	
+	/* Accept multiple connections */
+	if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt)) < 0){
+		perror("Socket options failed");
+		LOG("[error] could not set socket options");
+		return 1;
+	}
+
 	/* Bind */
 	if(bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0){
 		perror("Socket binding failed");
