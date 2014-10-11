@@ -15,6 +15,7 @@ Simple chatroom in C unsing SSL to tunnel the connection between client and serv
 | ------------- | --------------------- | ----------------------------------- |
 | \QUIT         |                       | Leave the chatroom                  |
 | \PING         |                       | Test connection, responds with PONG |
+| \ME           |                       | Sending message in 3rd persion      |
 | \NAME         | [nickname]            | Change nickname                     |
 | \PRIVATE      | [reference] [message] | Send private message                |
 | \ACTIVE       |                       | Show active clients                 |
