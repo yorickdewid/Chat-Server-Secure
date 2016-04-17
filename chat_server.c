@@ -330,6 +330,7 @@ int main(int argc, char *argv[]){
 	load_certificate(ctx, cert, key);
 	
 	/* Accept multiple connections */
+	int opt = 1;
 	if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt)) < 0){
 		perror("Socket options failed");
 		LOG("[error] could not set socket options");
