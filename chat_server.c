@@ -17,7 +17,6 @@
 #include <ctype.h>
 #include <string.h>
 #include <pthread.h>
-#include <signal.h>
 #include <sys/types.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -178,7 +177,7 @@ void *handle_client(void *arg){
 		if(!strlen(buff_in)){
 			continue;
 		}
-	
+
 		/* Special options */
 		if(buff_in[0] == '\\'){
 			char *command, *param;
@@ -290,7 +289,7 @@ void *handle_client(void *arg){
 	free(cli);
 	cli_count--;
 	pthread_detach(pthread_self());
-	
+
 	return 0;
 }
 
@@ -328,7 +327,7 @@ int main(int argc, char *argv[]){
 	SSL_library_init();
 	ctx = SSL_CTX_new(SSLv3_server_method());
 	load_certificate(ctx, cert, key);
-	
+
 	/* Accept multiple connections */
 	int opt = 1;
 	if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt)) < 0){
