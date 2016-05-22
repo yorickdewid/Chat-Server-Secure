@@ -154,7 +154,7 @@ void *handle_client(void *arg){
 	client_t *cli = (client_t *)arg;
 
 	if(SSL_accept(cli->ssl) == -1)
-		ERROR("[error] client connection faild");
+		ERROR("[error] client connection failed");
 
 	printf("<<ACCEPT ");
 	print_client_addr(cli->addr);
